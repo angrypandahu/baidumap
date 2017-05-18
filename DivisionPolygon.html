@@ -1,0 +1,602 @@
+﻿﻿
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <script type="text/javascript" src="http://api.map.baidu.com/api?v=1.5&ak=ojah64XjkCbxOpBBMg0nzjQx"></script>
+    <script type="text/javascript"
+            src="js/DrawingManager_min.js"></script>
+    <script type="text/javascript" src="js/GeoUtils.js"></script>
+    <script type="text/javascript" src="js/2D.js"></script>
+    <script type="text/javascript" src="js/Intersection.js"></script>
+
+    <link rel="stylesheet" href="css/DrawingManager_min.css"/>
+
+    <!--加载鼠标绘制工具-->
+    <style type="text/css">
+        body {
+            font-size: 13px;
+            margin: 10px
+        }
+
+        #container {
+            width: 1200px;
+            height: 550px;
+            border: 1px solid gray
+        }
+    </style>
+</head>
+<body onload="init()">
+<div id="container"></div>
+<br/>
+输入区名称：<input type="text" id="districtName" style="width:80px" value="嘉定">
+<input type="button" onclick="getBoundary()" value="获取轮廓线">
+<input type="hidden" id="polygonLengthId" value="0">
+
+<script type="text/javascript">
+    var styles = [];
+    function Option(strokeColor, fillColor) {
+        this.strokeColor = strokeColor;
+        this.fillColor = fillColor;
+        this.strokeWeight = 3;       //边线的宽度，以像素为单位。
+        this.strokeOpacity = 0.8;      //边线透明度，取值范围0 - 1。
+        this.fillOpacity = 0.6;      //填充的透明度，取值范围0 - 1。
+        this.strokeStyle = 'solid'; //边线的样式，solid或dashed。
+    }
+
+
+    styles.push(new Option("black", "blue"));
+    styles.push(new Option("black", "red"));
+    styles.push(new Option("black", "green"));
+    styles.push(new Option("black", "purple"));
+    styles.push(new Option("black", "yellow"));
+    styles.push(new Option("black", "orange"));
+
+    function toPoint(baiduPoint) {
+        return {x: baiduPoint.lng, y: baiduPoint.lat}
+    }
+
+    function toPoints(baiduPoints) {
+        var ret = [];
+        for (var i = 0; i < baiduPoints.length; i++) {
+            ret.push(toPoint(baiduPoints[i]));
+        }
+
+        return ret
+    }
+
+    function toBaiduPoint(point) {
+        return new BMap.Point(point.x, point.y)
+    }
+    function toBaiduPoints(points) {
+        var ret = [];
+        for (var i = 0; i < points.length; i++) {
+            ret.push(toBaiduPoint(points[i]));
+        }
+        return ret;
+    }
+
+    function isAboveLine(a0, a1, a2) {
+
+        var number = (a2.x - a0.x) / (a0.x - a1.x) * (a0.y - a1.y) + a0.y - a2.y;
+        console.log('isAboveLine', number);
+        return number;
+
+
+    }
+
+    var map = new BMap.Map("container");
+
+    //    map.centerAndZoom(new BMap.Point(116.403765, 39.914850), 5);
+    //    map.addControl(new BMap.NavigationControl({type: BMAP_NAVIGATION_CONTROL_SMALL}));
+    map.enableScrollWheelZoom();
+    map.setCurrentCity("上海");
+    map.centerAndZoom("上海", 12);
+    var ply;
+
+    var editPol = function (e) {
+        var pointwindow = new BMap.Point(e.lng, e.lat);
+        var sContent =
+            "<div>" +
+            "<form method='post' action=''>" +
+            "   名称：<input type='text'  name='name'></br>" +
+            "   备注：<input type='text'  name='mark'></br>" +
+            "   <input type='submit'  value='保存'>" +
+            "</form>" +
+            "</div>";
+        var opts = {
+            title: "信息编辑", // 信息窗口标题
+            enableMessage: false//设置允许信息窗发送短息
+        };
+        var infoWindowpol = new BMap.InfoWindow(sContent, opts);  // 创建信息窗口对象
+        map.openInfoWindow(infoWindowpol, pointwindow);
+
+
+    };
+
+    var fillPolYellow = function (e, ee, pol) {
+        console.log("e:", e);
+        console.log("ee:", ee);
+        console.log("pol:" + pol);
+        if ("[object Polygon]" == (pol)) {
+            pol.setFillColor("yellow");
+        }
+
+    };
+    var fillPolBlue = function (e, ee, pol) {
+        console.log("e:", e);
+        console.log("ee:", ee);
+        console.log("pol:" + pol);
+        if ("[object Polygon]" == (pol)) {
+            pol.setFillColor("blue");
+        }
+
+    };
+    function getCenterPoint(ploygon) {
+        var pointArray = [];
+        pointArray = ploygon.getPath();
+        var bounds = ploygon.getBounds();
+        var point = bounds.getCenter();
+        var latRightCounts = 0;
+        var latLeftCounts = 0;
+        var lngHighCounts = 0;
+        var lngLowCounts = 0;
+        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+            return point;
+        } else {
+            for (var i = 0; i < pointArray.length; i++) {
+
+                if (point.lat - pointArray[i].lat > 0) {
+                    latLeftCounts = latLeftCounts + 1;
+                } else {
+                    latRightCounts = latRightCounts + 1;
+                }
+                if (point.lng - pointArray[i].lng > 0) {
+                    lngLowCounts = lngLowCounts + 1;
+                } else {
+                    lngHighCounts = lngHighCounts + 1;
+                }
+            }
+            if (latRightCounts >= latLeftCounts) {
+                if (latRightCounts >= lngHighCounts) {
+                    if (latRightCounts >= lngLowCounts) {
+                        //右边的点最多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lat = point.lat + 0.0002;
+                        }
+                        point.lat = point.lat + 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lat = point.lat - 0.0018;
+                            return point;
+                        }
+
+                    } else {
+                        //下边的点最多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lng = point.lng - 0.0002;
+                        }
+                        point.lng = point.lng - 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lng = point.lng + 0.0018;
+                            return point;
+                        }
+                    }
+                } else {
+                    if (lngHighCounts >= lngLowCounts) {
+                        //上边的点比较多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lng = point.lng + 0.0002;
+                        }
+                        point.lng = point.lng + 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lng = point.lng - 0.0018;
+                            return point;
+                        }
+                    } else {
+                        //下边的点最多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lng = point.lng - 0.0002;
+                        }
+                        point.lng = point.lng - 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lng = point.lng + 0.0018;
+                            return point;
+                        }
+                    }
+                }
+            } else {
+                if (latLeftCounts >= lngHighCounts) {
+                    if (latLeftCounts >= lngLowCounts) {
+                        //左边的点最多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lat = point.lat - 0.0002;
+                        }
+                        point.lat = point.lat - 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lat = point.lat + 0.0018;
+                            return point;
+                        }
+                    } else {
+                        //下边的点最多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lng = point.lng - 0.0002;
+                        }
+                        point.lng = point.lng - 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lng = point.lng + 0.0018;
+                            return point;
+                        }
+                    }
+                } else {
+                    if (lngHighCounts >= lngLowCounts) {
+                        //上边的点比较多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lng = point.lng + 0.0002;
+                        }
+                        point.lng = point.lng + 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lng = point.lng - 0.0018;
+                            return point;
+                        }
+                    } else {
+                        //下边的点最多
+                        while (false == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            point.lng = point.lng - 0.0002;
+                        }
+                        point.lng = point.lng - 0.0018;
+                        if (true == (BMapLib.GeoUtils.isPointInPolygon(point, ploygon))) {
+                            return point;
+                        } else {
+                            point.lng = point.lng + 0.0018;
+                            return point;
+                        }
+                    }
+                }
+            }
+
+        }
+    }
+
+    function getCrossPoint(point1, point2, point3, point4) {
+        var pD_x = point1.split(',')[0];
+        var pD_y = point1.split(',')[1];
+        var pA_x = point2.split(',')[0];
+        var pA_y = point2.split(',')[1];
+
+        var pC_x = point3.split(',')[0];
+        var pC_y = point3.split(',')[1];
+        var pB_x = point4.split(',')[0];
+        var pB_y = point4.split(',')[1];
+
+        var k_y = (pB_x * pC_y * pD_y - pD_x * pB_y * pC_y - pA_y * pB_x * pD_y + pD_x * pB_y * pA_y + pC_x * pA_y * pD_y - pA_x * pC_y * pD_y - pC_x * pB_y * pA_y + pA_x * pB_y * pC_y) /
+            (pD_y * pC_x - pA_x * pD_y - pB_y * pC_x + pA_x * pB_y + pB_x * pC_y - pD_x * pC_y - pA_y * pB_x + pA_y * pD_x);
+
+        var k_x = (pD_y * (pC_x - pA_x) * (pB_x - pD_x) - pA_y * (pC_x - pA_x) * (pB_x - pD_x) + pA_x * (pC_y - pA_y) * (pB_x - pD_x) + pD_x * (pD_y - pB_y) * (pC_x - pA_x)) /
+            ((pC_y - pA_y) * (pB_x - pD_x) + (pD_y - pB_y) * (pC_x - pA_x));
+
+        return k_x + ',' + k_y;
+    }
+    function getCrossPoint2(point1, point2, point3, point4) {
+        var pD_x = point1.lat;
+        var pD_y = point1.lng;
+        var pA_x = point2.lat;
+        var pA_y = point2.lng;
+
+        var pC_x = point3.lat;
+        var pC_y = point3.lng;
+        var pB_x = point4.lat;
+        var pB_y = point4.lng;
+
+        var k_y = (pB_x * pC_y * pD_y - pD_x * pB_y * pC_y - pA_y * pB_x * pD_y + pD_x * pB_y * pA_y + pC_x * pA_y * pD_y - pA_x * pC_y * pD_y - pC_x * pB_y * pA_y + pA_x * pB_y * pC_y) /
+            (pD_y * pC_x - pA_x * pD_y - pB_y * pC_x + pA_x * pB_y + pB_x * pC_y - pD_x * pC_y - pA_y * pB_x + pA_y * pD_x);
+
+        var k_x = (pD_y * (pC_x - pA_x) * (pB_x - pD_x) - pA_y * (pC_x - pA_x) * (pB_x - pD_x) + pA_x * (pC_y - pA_y) * (pB_x - pD_x) + pD_x * (pD_y - pB_y) * (pC_x - pA_x)) /
+            ((pC_y - pA_y) * (pB_x - pD_x) + (pD_y - pB_y) * (pC_x - pA_x));
+        return new BMap.Point(k_y, k_x);
+    }
+    var init = function () {
+        var styleOptions = this.styleOptions;
+        map.enableScrollWheelZoom();
+        //实例化鼠标绘制工具
+        this.drawingManager = new BMapLib.DrawingManager(map, {
+            isOpen: false, //是否开启绘制模式
+            enableDrawingTool: true, //是否显示工具栏
+            drawingToolOptions: {
+                anchor: BMAP_ANCHOR_TOP_RIGHT, //位置
+                offset: new BMap.Size(5, 5), //偏离值
+                scale: 0.8, //工具栏缩放比例
+                drawingModes: [
+                    //工具栏上可以选择出现的绘制模式
+                    BMAP_DRAWING_POLYLINE
+                ]
+            },
+            polylineOptions: styleOptions, //线的样式
+        });
+        //添加鼠标绘制工具监听事件，用于获取绘制结果
+        drawingManager.addEventListener('overlaycomplete', overlaycomplete);
+
+    }
+
+    var overlaycomplete = function (e) {
+
+        var overlaysArr = map.getOverlays();
+        var plyArr = [];
+        for (var i = 0; i < overlaysArr.length; i++) {
+            if (overlaysArr[i] instanceof BMap.Polygon) {
+                plyArr.push(overlaysArr[i]);
+            }
+        }
+        if (plyArr.length == 0) {
+            alert("未找到多边形区域!");
+            map.removeOverlay(e.overlay);
+            return
+        }
+        divisionPolygonArrByLine(plyArr, e.overlay);
+        /*
+         var polylinePointArr = e.overlay.getPath();
+
+         console.log("折线点数:", polylinePointArr.length);
+         var styleOptions = {
+         strokeColor: "blue",    //边线颜色。
+         fillColor: "blue",      //填充颜色。当参数为空时，圆形将没有填充效果。
+         strokeWeight: 3,       //边线的宽度，以像素为单位。
+         strokeOpacity: 0.8,       //边线透明度，取值范围0 - 1。
+         fillOpacity: 0.6,      //填充的透明度，取值范围0 - 1。
+         strokeStyle: 'solid' //边线的样式，solid或dashed。
+         };
+
+         var baiduPoints = ply.getPath();
+         var points = toPoints(baiduPoints);
+         var toPoints2 = toPoints(polylinePointArr);
+         map.removeOverlay(e.overlay);  //添加覆盖物;
+         var newPolyLine = getNewPolyLine(toPoints2, points);
+         if (newPolyLine.length == 0) {
+         alert('请与多边形有两个交点');
+         return
+         }
+
+
+         var toBaiduPoints2 = toBaiduPoints(newPolyLine);
+         //        var polyline = new BMap.Polyline(toBaiduPoints2, styleOptions);
+         //        map.addOverlay(polyline);  //添加覆盖物
+         var polygon = new BMap.Polygon(getNewPolygon(toBaiduPoints2, baiduPoints), styleOptions);
+
+
+         map.setViewport(polygon.getPath()); //调整视野
+         map.centerAndZoom(name, 12);
+         map.addOverlay(polygon);  //添加覆盖物*/
+    };
+    function divisionPolygonArrByLine(polygonArr, line) {
+        var intersects = [];
+        var intersectPolygon = {};
+        for (var i = 0; i < polygonArr.length; i++) {
+            var polygon = polygonArr[i];
+            intersects = trimLineByPolygon(polygon, line);
+            if (intersects.length >= 2) {
+                intersectPolygon = polygon;
+                break;
+            }
+        }
+        if (intersects.length >= 2 && intersectPolygon instanceof BMap.Polygon) {
+            map.removeOverlay(line);
+            getNewPolygon(intersects, intersectPolygon);
+
+        } else {
+            map.removeOverlay(line);
+            alert('请与多边形有两个交点');
+        }
+
+    }
+
+
+    function trimLineByPolygon(polygon, line) {
+        var polygonPts = toPoints(polygon.getPath());
+        var lineBPoints = line.getPath();
+        var linePts = toPoints(lineBPoints);
+        var intersectPoints = intersectPolylinePolygon(linePts, polygonPts);
+        var retArr = [];
+        if (intersectPoints.length == 2) {
+            retArr.push(intersectPoints[0]);
+            for (var i = 0; i < linePts.length; i++) {
+                var obj = linePts[i];
+                var bObj = lineBPoints[i];
+                if (BMapLib.GeoUtils.isPointInPolygon(bObj, polygon)) {
+                    retArr.push(obj)
+                }
+            }
+            retArr.push(intersectPoints[1]);
+        }
+
+        return toBaiduPoints(retArr);
+    }
+
+    function getNewPolygon(linePts, polygon) {
+        var pts = polygon.getPath();
+        var lastPoint = linePts[linePts.length - 1];
+        var firstPoint = linePts[0];
+        var startNum;
+        var endNum;
+        for (var i = 0; i < pts.length - 1; i++) {
+            var curPt = pts[i];
+            var nextPt = pts[i + 1];
+            if (isPointOnLine(firstPoint, curPt, nextPt)) {
+                startNum = i;
+                console.log('startNum', i);
+            }
+            if (isPointOnLine(lastPoint, curPt, nextPt)) {
+                endNum = i;
+                console.log('endNum', i);
+
+            }
+
+        }
+        console.log('startName', startNum, "endNum", endNum);
+        console.log(firstPoint, lastPoint);
+        var firstHalf = [];
+        var secondHalf = [];
+
+        if (startNum < endNum) {
+            var slice = pts.slice(startNum + 1, endNum + 1);
+            secondHalf = linePts.concat(pts.slice(endNum + 1)).concat(pts.slice(0, startNum + 1));
+            firstHalf = linePts.reverse().concat(slice);
+
+        } else {
+            firstHalf = linePts.concat(pts.slice(endNum + 1, startNum + 1));
+            secondHalf = linePts.reverse().concat(pts.slice(startNum + 1)).concat(pts.slice(0, endNum + 1));
+
+        }
+        var element = document.getElementById('polygonLengthId');
+        var value = Number(element.value) % (styles.length - 1);
+
+        var firstPolygon = new BMap.Polygon(firstHalf, styles[value]);
+        var secondPolygon = new BMap.Polygon(secondHalf, styles[value + 1]);
+
+        element.value = ( Number(element.value) + 1);
+        map.setViewport(polygon.getPath()); //调整视野
+        map.centerAndZoom(name, 12);
+        map.removeOverlay(polygon);
+        map.addOverlay(firstPolygon);  //添加覆盖物*/
+        map.addOverlay(secondPolygon);  //添加覆盖物*/
+        return firstHalf;
+
+    }
+
+
+    function isPointOnLine(point, curPt, nextPt) {
+        if (point.lng >= Math.min(curPt.lng, nextPt.lng) && point.lng <= Math.max(curPt.lng, nextPt.lng) &&
+            point.lat >= Math.min(curPt.lat, nextPt.lat) && point.lat <= Math.max(curPt.lat, nextPt.lat)) {
+            //判断点是否在直线上公式
+            var precision = (curPt.lng - point.lng) * (nextPt.lat - point.lat) -
+                (nextPt.lng - point.lng) * (curPt.lat - point.lat);
+            if (precision < 2e-10 && precision > -2e-10) {//实质判断是否接近0
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function intersectPolylinePolygon(points, points1) {
+        var intersectLinePolygon = new Intersection('intersectLinePolygon');
+        if (points.length == 2) {
+            intersectLinePolygon.appendPoints(Intersection.intersectLinePolygon(points[0], points[1], points1).points);
+        } else {
+            for (var i = 0; i < points.length - 1; i++) {
+                var obj1 = points[i];
+                var obj2 = points[i + 1];
+                intersectLinePolygon.appendPoints(Intersection.intersectLinePolygon(obj1, obj2, points1).points);
+            }
+        }
+        return intersectLinePolygon.points;
+
+    }
+    function getNewPolyLine(points, points1) {
+        var intersectPoints = intersectPolylinePolygon(points, points1);
+        var retArr = [];
+        if (intersectPoints.length == 2) {
+            retArr.push(intersectPoints[0]);
+            for (var i = 0; i < points.length; i++) {
+                var obj = points[i];
+                if ((obj.x >= intersectPoints[0].x && obj.x <= intersectPoints[1].x) || (obj.x >= intersectPoints[1].x && obj.x <= intersectPoints[0].x)) {
+                    retArr.push(obj)
+                }
+
+            }
+            retArr.push(intersectPoints[1]);
+        }
+        return retArr;
+
+    }
+
+    function getBoundary() {
+        var bdary = new BMap.Boundary();
+        var name = document.getElementById("districtName").value;
+        var styleOptions = {
+            strokeColor: "red",    //边线颜色。
+            fillColor: "red",      //填充颜色。当参数为空时，圆形将没有填充效果。
+            strokeWeight: 3,       //边线的宽度，以像素为单位。
+            strokeOpacity: 0.8,       //边线透明度，取值范围0 - 1。
+            fillOpacity: 0.6,      //填充的透明度，取值范围0 - 1。
+            strokeStyle: 'solid' //边线的样式，solid或dashed。
+        };
+
+        bdary.get(name, function (rs) {       //获取行政区域
+            map.clearOverlays();        //清除地图覆盖物
+            var count = rs.boundaries.length; //行政区域的点有多少个
+            console.log('rs.boundaries.length', rs.boundaries.length);
+            ply = new BMap.Polygon(rs.boundaries[0], styleOptions); //建立多边形覆盖物
+            map.setViewport(ply.getPath()); //调整视野
+            map.centerAndZoom(name, 12);
+            map.addOverlay(ply);  //添加覆盖物
+            /**************************添加改变颜色和鼠标事件*****************************/
+            var polMenu = new BMap.ContextMenu();
+            polMenu.addItem(new BMap.MenuItem('编辑', editPol.bind(ply)));
+            polMenu.addItem(new BMap.MenuItem('填充-黄色', fillPolYellow.bind(ply)));
+            polMenu.addItem(new BMap.MenuItem('填充-蓝色', fillPolBlue.bind(ply)));
+//            polMenu.addItem(new BMap.MenuItem('填充-红色', fillPolRed.bind(ply)));
+//            polMenu.addItem(new BMap.MenuItem('填充-青色', fillPolCyan.bind(ply)));
+//            polMenu.addItem(new BMap.MenuItem('填充-橙色', fillPolOrange.bind(ply)));
+//            polMenu.addItem(new BMap.MenuItem('填充-蓝色', fillPolBlue.bind(ply)));
+            ply.addContextMenu(polMenu);
+            var labelOne;
+            ply.addEventListener('mouseover', function () {
+                labelOne = new BMap.Label('姓名:备注:', {position: getCenterPoint(ply)});
+                map.addOverlay(labelOne);
+                ply.setFillOpacity(0.3);
+            });
+            ply.addEventListener('mouseout', function () {
+                map.removeOverlay(labelOne);
+                ply.setFillOpacity(0.6);
+            });
+
+            //标注点
+            var pointArr = ply.getPath();
+//            var marker = new BMap.Marker(pointArr[0]);
+//            var label = new BMap.Label(0 + "", {offset: new BMap.Size(10, -10)});
+//            marker.setLabel(label);
+//            var marker10 = new BMap.Marker(pointArr[3]);
+//            map.addOverlay(marker);
+//            map.addOverlay(marker10);
+//            console.log(pointArr[0], pointArr[1]);
+            /*   for (var i = 0; i < pointArr.length; i++) {
+             if (i % 5 == 0) {
+             var marker = new BMap.Marker(pointArr[i]);
+             map.addOverlay(marker);
+             var label = new BMap.Label(i + "", {offset: new BMap.Size(10, -10)});
+             marker.setLabel(label);
+             }
+
+             }*/
+
+        });
+
+
+    }
+
+    function getOverLays() {
+        var allOverlay = map.getOverlays();
+        for (var i = 0; i < allOverlay.length; i++) {
+            var obj = allOverlay[i];
+            if (obj == ply) {
+
+            }
+
+        }
+    }
+
+</script>
+</body>
+</html>  
